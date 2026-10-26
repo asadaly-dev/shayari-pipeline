@@ -77,6 +77,61 @@ def process_media_to_text(media_path, base_name, groq_key):
     raw_text = transcription
 
     prompt = f"""
+    You are an expert Urdu/Hindi poet and text formatter. Analyze the transcribed text provided below extracted from a shayari video. 
+    Carefully filter out any background noise, music cues, or non-poetry words. Focus ONLY on the spoken shayari.
+    Consider the delivery style (andaz-e-bayan) and emotional tone, and apply appropriate punctuation. 
+    CRITICAL INSTRUCTION: If any misra (line) or phrase is repeated in the video, you MUST retain the exact same repetition in the formatted text. Do not skip or remove repetitions, as they are crucial for the poetry's emotional impact.
+
+    Raw Transcribed Text:
+    {raw_text}
+
+    Provide two separate versions of the poetry:
+    URDU_TEXT: The original poetry in authentic Urdu script (Persian-Arabic), formatted as proper poetry (line by line / misra format) with correct punctuation and styling, keeping all repetitions intact.
+    HINDI_TEXT: The same poetry in Devanagari (Hindi) script, with identical formatting, line structure, and exact repetitions.
+    
+    Respond strictly in the following format:
+    ---URDU_START---
+    [Formatted poetry in Urdu script with repetitions]
+    ---URDU_END---
+
+    ---HINDI_START---
+    [Formatted poetry in Hindi script with repetitions]
+    ---HINDI_END---
+    """
+
+    response = client_groq.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3
+    )
+    result_content = response.choices[0].message.content
+
+    urdu_text, hindi_text = raw_text, raw_text
+    if "---URDU_START---" in result_content and "---URDU_END---" in result_content:
+        urdu_text = result_content.split("---URDU_START---")[1].split("---URDU_END---")[0].strip()
+    if "---HINDI_START---" in result_content and "---HINDI_END---" in result_content:
+        hindi_text = result_content.split("---HINDI_START---")[1].split("---HINDI_END---")[0].strip()
+
+    # Save files locally
+    urdu_file_path = os.path.join(OUTPUT_URDU_FOLDER, f"{base_name}_urdu.txt")
+    with open(urdu_file_path, 'w', encoding='utf-8') as f:
+        f.write(urdu_text)
+
+    hindi_file_path = os.path.join(OUTPUT_HINDI_FOLDER, f"{base_name}_hindi.txt")
+    with open(hindi_file_path, 'w', encoding='utf-8') as f:
+        f.write(hindi_text)
+
+    return urdu_text, hindi_text, urdu_file_path, hindi_file_path
+    client_groq = Groq(api_key=groq_key)
+    with open(media_path, "rb") as file:
+        transcription = client_groq.audio.transcriptions.create(
+            file=(os.path.basename(media_path), file.read()),
+            model="whisper-large-v3",
+            response_format="text"
+        )
+    raw_text = transcription
+
+    prompt = f"""
     You are an expert Urdu/Hindi poet and text formatter. Analyze the transcribed text provided below. This text has been extracted from a shayari (poetry) video. Carefully consider the delivery style (andaz-e-bayan) and emotional tone, then apply appropriate punctuation. IMPORTANT: If any misra (line) is repeated in the video, retain the exact same repetition in the formatted text. Raw Transcribed Text:
 
     {raw_text}
