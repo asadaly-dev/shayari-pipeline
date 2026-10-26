@@ -19,9 +19,9 @@ st.markdown("TikTok ya Facebook ka link dein, automation video download karegi, 
 
 # --- Sidebar Configurations ---
 st.sidebar.header("🔑 API Configurations")
-GROQ_API_KEY = st.sidebar.text_input("Groq API Key", type="password")
-ELEVEN_LABS_API_KEY = st.sidebar.text_input("ElevenLabs API Key", type="password")
-VOICE_ID = st.sidebar.text_input("ElevenLabs Voice ID", value="nQ41Q0vYCIfV8DMjRAUs")
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+ELEVEN_LABS_API_KEY = st.secrets.get("ELEVEN_LABS_API_KEY", "")
+VOICE_ID = st.secrets.get("VOICE_ID", "nQ41Q0vYCIfV8DMjRAUs")
 
 DOWNLOAD_FOLDER = "input_videos"
 OUTPUT_URDU_FOLDER = "output_urdu_text"
