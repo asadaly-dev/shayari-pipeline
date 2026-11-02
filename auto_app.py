@@ -1,5 +1,6 @@
 import os
 import time
+import random
 import zipfile
 import io
 import requests
@@ -144,7 +145,7 @@ for folder in [DOWNLOAD_FOLDER, OUTPUT_URDU_FOLDER, OUTPUT_HINDI_FOLDER, OUTPUT_
     os.makedirs(folder, exist_ok=True)
 
 # ==========================================
-# 📥 UPGRADED DOWNLOADER FUNCTIONS (With Fallback & Error Logging)
+# 📥 UPGRADED DOWNLOADER FUNCTIONS (Anti-Bot & Fallback)
 # ==========================================
 def download_tiktok(video_url, prefix="single"):
     headers = {
@@ -179,11 +180,11 @@ def download_tiktok(video_url, prefix="single"):
             else:
                 tikwm_error = "TikWM: Video stream missing"
         else:
-            tikwm_error = f"TikWM msg: {data.get('msg', 'Rate limit or invalid link')}"
+            tikwm_error = f"TikWM msg: {data.get('msg', 'Rate limit or IP block')}"
     except Exception as e:
         tikwm_error = f"TikWM Error: {str(e)[:50]}"
 
-    # Attempt 2: yt-dlp Fallback
+    # Attempt 2: yt-dlp Fallback with custom headers
     file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_tiktok_{abs(hash(video_url))}.mp4")
     ydl_opts = {
         'outtmpl': file_path,
@@ -200,7 +201,7 @@ def download_tiktok(video_url, prefix="single"):
     except Exception as ydl_e:
         return None, f"{tikwm_error} | yt-dlp: {str(ydl_e)[:60]}"
 
-    return None, tikwm_error or "Unknown TikTok download failure"
+    return None, tikwm_error or "TikTok IP block / Download failure"
 
 def download_facebook(video_url, prefix="single"):
     file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_fb_{abs(hash(video_url))}.mp4")
@@ -464,11 +465,11 @@ with mode_bulk:
         with st.expander("👀 Excel Links Preview Dekhein"):
             st.dataframe(df_links.head(20), use_container_width=True)
 
-        st.markdown("##### 🎯 Select Batch Range (Safe Limit: 10–15 Links at a time)")
+        st.markdown("##### 🎯 Select Batch Range (Safe Limit: 5–10 Links at a time on Cloud)")
         c1, c2 = st.columns(2)
         min_sno = int(df_links["S.No"].min())
         max_sno = int(df_links["S.No"].max())
-        default_end = min(min_sno + 9, max_sno)
+        default_end = min(min_sno + 4, max_sno)
 
         with c1:
             start_sno = st.number_input("Start S.No", min_value=min_sno, max_value=max_sno, value=min_sno, step=1)
@@ -518,8 +519,10 @@ with mode_bulk:
                         st.session_state["batch_master_zip"] = build_batch_master_zip(st.session_state["batch_results"])
                         st.session_state["batch_range_label"] = f"{start_sno}_to_{end_sno}"
                         live_counter.markdown(f"**Live Stats:** ✅ Completed: `{completed_count}` | ❌ Failed: `{failed_count}`")
+                        
+                        # Anti-block random delay on failure too
                         if idx < batch_count:
-                            time.sleep(2)
+                            time.sleep(random.uniform(4, 7))
                         continue
 
                     try:
@@ -579,8 +582,10 @@ with mode_bulk:
                     st.session_state["batch_range_label"] = f"{start_sno}_to_{end_sno}"
                     live_counter.markdown(f"**Live Stats:** ✅ Completed: `{completed_count}` | ❌ Failed: `{failed_count}`")
 
+                    # Smart Anti-Bot Delay (Randomized 5 to 9 seconds gap between requests for Cloud)
                     if idx < batch_count:
-                        time.sleep(2.5)
+                        sleep_time = random.uniform(5.0, 9.0)
+                        time.sleep(sleep_time)
 
                 progress_bar.progress(100, text="✅ Bulk Queue Completed!")
                 status_box.success(f"🎉 Batch Complete! {completed_count} kamiyab hue, {failed_count} fail hue.")
