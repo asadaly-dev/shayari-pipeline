@@ -4,6 +4,7 @@ import zipfile
 import io
 import requests
 import yt_dlp
+import pandas as pd
 from groq import Groq
 import streamlit as st
 
@@ -43,43 +44,33 @@ st.markdown("""
     /* Hero Banner Styling */
     .hero-box {
         text-align: center;
-        padding: 2.2rem 1.5rem;
+        padding: 2rem 1.5rem;
         border-radius: 20px;
         background: linear-gradient(135deg, rgba(255, 75, 114, 0.1) 0%, rgba(121, 40, 202, 0.1) 100%);
         border: 1px solid rgba(255, 255, 255, 0.12);
-        margin-bottom: 2rem;
+        margin-bottom: 1.5rem;
         animation: fadeIn 0.7s ease-out;
     }
     .hero-icon {
-        font-size: 3.2rem;
+        font-size: 3rem;
         display: inline-block;
         animation: float 3s ease-in-out infinite;
-        margin-bottom: 0.4rem;
+        margin-bottom: 0.3rem;
     }
     .hero-title {
-        font-size: 2.3rem;
+        font-size: 2.2rem;
         font-weight: 800;
         background: linear-gradient(90deg, #FF4B72, #A855F7, #3B82F6);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.4rem;
     }
     .hero-subtitle {
-        font-size: 1rem;
+        font-size: 0.98rem;
         opacity: 0.85;
         max-width: 580px;
         margin: 0 auto;
-        line-height: 1.6;
-    }
-
-    /* Input Field Styling */
-    div[data-baseweb="input"] {
-        border-radius: 12px !important;
-        transition: all 0.3s ease;
-    }
-    div[data-baseweb="input"]:focus-within {
-        border-color: #FF4B72 !important;
-        box-shadow: 0 0 12px rgba(255, 75, 114, 0.3) !important;
+        line-height: 1.5;
     }
 
     /* Primary & Download Buttons */
@@ -106,29 +97,24 @@ st.markdown("""
         background: rgba(128, 128, 128, 0.07);
         border: 1px solid rgba(128, 128, 128, 0.2);
         border-radius: 16px;
-        padding: 1.5rem;
-        min-height: 220px;
+        padding: 1.3rem;
+        min-height: 180px;
         white-space: pre-wrap;
-        animation: fadeIn 0.6s ease-out;
-        transition: transform 0.3s ease, border-color 0.3s ease;
-    }
-    .poetry-card:hover {
-        transform: translateY(-3px);
-        border-color: #FF4B72;
+        animation: fadeIn 0.5s ease-out;
     }
     .urdu-font {
         direction: rtl;
         text-align: right;
         font-family: 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Segoe UI', Tahoma, sans-serif;
-        font-size: 1.35rem;
-        line-height: 2.3;
+        font-size: 1.3rem;
+        line-height: 2.2;
     }
     .hindi-font {
         direction: ltr;
         text-align: left;
         font-family: 'Poppins', 'Segoe UI', sans-serif;
-        font-size: 1.15rem;
-        line-height: 1.9;
+        font-size: 1.1rem;
+        line-height: 1.8;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -139,12 +125,12 @@ st.markdown("""
     <div class="hero-icon">🎙️</div>
     <div class="hero-title">Shayari Video-to-Audio AI</div>
     <div class="hero-subtitle">
-        TikTok ya Facebook ka link paste karein — AI khud video download karegi, Urdu aur Hindi scripts format karegi, aur ElevenLabs voiceover ke sath instant ZIP package tayyar karegi!
+        Single link process karein ya Excel file upload karke bulk queue chalayein — Urdu/Hindi scripts aur ElevenLabs voiceover ek hi Master ZIP mein hasil karein!
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- Background API Configurations (Hidden from UI) ---
+# --- Background API Configurations ---
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 ELEVEN_LABS_API_KEY = st.secrets.get("ELEVEN_LABS_API_KEY", "")
 VOICE_ID = st.secrets.get("VOICE_ID", "nQ41Q0vYCIfV8DMjRAUs")
@@ -158,26 +144,26 @@ for folder in [DOWNLOAD_FOLDER, OUTPUT_URDU_FOLDER, OUTPUT_HINDI_FOLDER, OUTPUT_
     os.makedirs(folder, exist_ok=True)
 
 # --- Downloader Functions ---
-def download_tiktok(video_url):
+def download_tiktok(video_url, prefix="single"):
     api_url = f"https://www.tikwm.com/api/?url={video_url}"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     try:
-        response = requests.get(api_url, headers=headers)
+        response = requests.get(api_url, headers=headers, timeout=30)
         data = response.json()
         if data.get('code') == 0:
             video_dl_url = data['data']['play']
-            video_id = data['data']['id']
-            file_path = os.path.join(DOWNLOAD_FOLDER, f"tiktok_{video_id}.mp4")
-            video_response = requests.get(video_dl_url)
+            video_id = data['data'].get('id', int(time.time()))
+            file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_tiktok_{video_id}.mp4")
+            video_response = requests.get(video_dl_url, timeout=60)
             with open(file_path, 'wb') as f:
                 f.write(video_response.content)
             return file_path
-    except Exception as e:
-        st.error(f"TikTok download error: {e}")
+    except Exception:
+        return None
     return None
 
-def download_facebook(video_url):
-    file_path = os.path.join(DOWNLOAD_FOLDER, f"fb_{abs(hash(video_url))}.mp4")
+def download_facebook(video_url, prefix="single"):
+    file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_fb_{abs(hash(video_url))}.mp4")
     ydl_opts = {
         'outtmpl': file_path,
         'format': 'best',
@@ -186,9 +172,17 @@ def download_facebook(video_url):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
-        return file_path
-    except Exception as e:
-        st.error(f"Facebook download error: {e}")
+        if os.path.exists(file_path):
+            return file_path
+    except Exception:
+        return None
+    return None
+
+def download_video_router(url, prefix="item"):
+    if "tiktok.com" in url or "vt.tiktok.com" in url:
+        return download_tiktok(url, prefix)
+    elif "facebook.com" in url or "fb.watch" in url:
+        return download_facebook(url, prefix)
     return None
 
 # --- Text Extraction & Formatting ---
@@ -239,7 +233,6 @@ def process_media_to_text(media_path, base_name, groq_key):
     if "---HINDI_START---" in result_content and "---HINDI_END---" in result_content:
         hindi_text = result_content.split("---HINDI_START---")[1].split("---HINDI_END---")[0].strip()
 
-    # Save files locally
     urdu_file_path = os.path.join(OUTPUT_URDU_FOLDER, f"{base_name}_urdu.txt")
     with open(urdu_file_path, 'w', encoding='utf-8') as f:
         f.write(urdu_text)
@@ -266,89 +259,116 @@ def generate_tts_elevenlabs(text, output_filename, api_key, voice_id):
             "similarity_boost": 0.70
         }
     }
-    response = requests.post(url, json=payload, headers=headers)
+    response = requests.post(url, json=payload, headers=headers, timeout=60)
     if response.status_code == 200:
         with open(output_filename, 'wb') as f:
             f.write(response.content)
-        return True
+        return True, "Success"
     else:
-        st.error(f"ElevenLabs API Error: {response.status_code} - {response.text}")
-        return False
+        return False, f"API Error {response.status_code}"
 
-# --- Main Input Flow ---
-url_input = st.text_input(
-    "🔗 Video Link",
-    placeholder="https://www.tiktok.com/... ya https://www.facebook.com/...",
-    label_visibility="collapsed"
-)
+# --- Helper to Build Master ZIP from Batch Results ---
+def build_batch_master_zip(results_list):
+    zip_buffer = io.BytesIO()
+    report_rows = []
 
-if st.button("✨ Generate Poetry & Audio Package"):
-    if not url_input.strip():
-        st.warning("⚠️ Baraye meherbani pehle koi valid TikTok ya Facebook link enter karein!")
-    elif not GROQ_API_KEY or not ELEVEN_LABS_API_KEY:
-        st.error("⚠️ System configuration mein API keys missing hain. (`st.secrets` check karein)")
-    else:
-        with st.status("🚀 AI Pipeline Chal Rahi Hai...", expanded=True) as status:
-            st.write("📥 **Step 1/3:** Video download ki ja rahi hai...")
-            media_path = None
-            if "tiktok.com" in url_input or "vt.tiktok.com" in url_input:
-                media_path = download_tiktok(url_input)
-            elif "facebook.com" in url_input or "fb.watch" in url_input:
-                media_path = download_facebook(url_input)
-            else:
-                status.update(label="❌ Invalid Link!", state="error", expanded=False)
-                st.error("Baraye meherbani sirf TikTok ya Facebook ka valid link dein!")
-                st.stop()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for item in results_list:
+            report_rows.append({
+                "S.No": item["sno"],
+                "Platform": item["platform"],
+                "Link": item["link"],
+                "Status": item["status"],
+                "Urdu Text": item.get("urdu_txt", ""),
+                "Hindi Text": item.get("hindi_txt", ""),
+                "Audio File": item.get("arc_audio_name", "")
+            })
+            if item["status"] == "✅ Completed":
+                if os.path.exists(item["urdu_file_path"]):
+                    zip_file.write(item["urdu_file_path"], arcname=item["arc_urdu_name"])
+                if os.path.exists(item["hindi_file_path"]):
+                    zip_file.write(item["hindi_file_path"], arcname=item["arc_hindi_name"])
+                if os.path.exists(item["audio_filename"]):
+                    zip_file.write(item["audio_filename"], arcname=item["arc_audio_name"])
 
-            if not media_path or not os.path.exists(media_path):
-                status.update(label="❌ Video Download Failed!", state="error", expanded=False)
-                st.stop()
+        # Add Excel Batch Report inside the Master ZIP
+        report_df = pd.DataFrame(report_rows)
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            report_df.to_excel(writer, index=False, sheet_name="Batch_Report")
+        excel_buffer.seek(0)
+        zip_file.writestr("Batch_Summary_Report.xlsx", excel_buffer.read())
 
-            base_name = f"poetry_{int(time.time())}"
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
 
-            st.write("🧠 **Step 2/3:** Groq Whisper AI audio transcribe kar raha hai aur Shayari format ho rahi hai...")
-            urdu_txt, hindi_txt, urdu_file_path, hindi_file_path = process_media_to_text(
-                media_path, base_name, GROQ_API_KEY
-            )
+# ==========================================
+# MAIN UI: DUAL MODE TABS
+# ==========================================
+mode_single, mode_bulk = st.tabs(["🔗 Single Video Link", "📊 Bulk Excel Queue (Auto-Pilot)"])
 
-            st.write("🎙️ **Step 3/3:** ElevenLabs se soulful voiceover generate ho raha hai...")
-            audio_filename = os.path.join(OUTPUT_AUDIO_FOLDER, f"{base_name}.mp3")
-            success = generate_tts_elevenlabs(hindi_txt, audio_filename, ELEVEN_LABS_API_KEY, VOICE_ID)
+# ------------------------------------------
+# TAB 1: SINGLE LINK PROCESSING
+# ------------------------------------------
+with mode_single:
+    url_input = st.text_input(
+        "🔗 Video Link",
+        placeholder="https://www.tiktok.com/... ya https://www.facebook.com/...",
+        label_visibility="collapsed"
+    )
 
-            # Cleanup downloaded video
-            if os.path.exists(media_path):
-                os.remove(media_path)
+    if st.button("✨ Generate Single Poetry & Audio"):
+        if not url_input.strip():
+            st.warning("⚠️ Baraye meherbani pehle koi valid TikTok ya Facebook link enter karein!")
+        elif not GROQ_API_KEY or not ELEVEN_LABS_API_KEY:
+            st.error("⚠️ System configuration mein API keys missing hain. (`st.secrets` check karein)")
+        else:
+            with st.status("🚀 AI Pipeline Chal Rahi Hai...", expanded=True) as status:
+                st.write("📥 **Step 1/3:** Video download ki ja rahi hai...")
+                media_path = download_video_router(url_input, prefix="single")
 
-            if success:
-                status.update(label="✅ Shayari aur Audio Kamiyabi se Tayyar Hain!", state="complete", expanded=False)
-                st.balloons()
+                if not media_path or not os.path.exists(media_path):
+                    status.update(label="❌ Video Download Failed!", state="error", expanded=False)
+                    st.error("Video download nahi ho saki. Link check karein!")
+                    st.stop()
 
-                # Create in-memory ZIP package
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                    zip_file.write(urdu_file_path, arcname=f"{base_name}_urdu.txt")
-                    zip_file.write(audio_filename, arcname=f"{base_name}.mp3")
-                zip_buffer.seek(0)
+                base_name = f"poetry_{int(time.time())}"
 
-                # Store results in session_state so they persist across button clicks
-                st.session_state["pipeline_result"] = {
-                    "base_name": base_name,
-                    "urdu_txt": urdu_txt,
-                    "hindi_txt": hindi_txt,
-                    "audio_filename": audio_filename,
-                    "zip_bytes": zip_buffer.getvalue()
-                }
-            else:
-                status.update(label="❌ Audio Generation Failed!", state="error", expanded=False)
+                st.write("🧠 **Step 2/3:** Groq Whisper AI audio transcribe aur Shayari format kar raha hai...")
+                urdu_txt, hindi_txt, urdu_file_path, hindi_file_path = process_media_to_text(
+                    media_path, base_name, GROQ_API_KEY
+                )
 
-# --- Display Results ---
-if "pipeline_result" in st.session_state:
-    res = st.session_state["pipeline_result"]
+                st.write("🎙️ **Step 3/3:** ElevenLabs se soulful voiceover generate ho raha hai...")
+                audio_filename = os.path.join(OUTPUT_AUDIO_FOLDER, f"{base_name}.mp3")
+                success, err_msg = generate_tts_elevenlabs(hindi_txt, audio_filename, ELEVEN_LABS_API_KEY, VOICE_ID)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    tab_side, tab_urdu, tab_hindi = st.tabs(["✨ Side-by-Side View", "📜 Urdu Script (Copy)", "📜 Hindi Script (Copy)"])
+                if os.path.exists(media_path):
+                    os.remove(media_path)
 
-    with tab_side:
+                if success:
+                    status.update(label="✅ Shayari aur Audio Kamiyabi se Tayyar Hain!", state="complete", expanded=False)
+                    st.balloons()
+
+                    zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                        zip_file.write(urdu_file_path, arcname=f"{base_name}_urdu.txt")
+                        zip_file.write(audio_filename, arcname=f"{base_name}.mp3")
+                    zip_buffer.seek(0)
+
+                    st.session_state["single_result"] = {
+                        "base_name": base_name,
+                        "urdu_txt": urdu_txt,
+                        "hindi_txt": hindi_txt,
+                        "audio_filename": audio_filename,
+                        "zip_bytes": zip_buffer.getvalue()
+                    }
+                else:
+                    status.update(label=f"❌ Audio Generation Failed: {err_msg}", state="error", expanded=False)
+
+    if "single_result" in st.session_state:
+        res = st.session_state["single_result"]
+        st.markdown("<br>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("##### 🌙 Urdu Script")
@@ -357,21 +377,201 @@ if "pipeline_result" in st.session_state:
             st.markdown("##### 🪔 Hindi Script")
             st.markdown(f'<div class="poetry-card hindi-font">{res["hindi_txt"]}</div>', unsafe_allow_html=True)
 
-    with tab_urdu:
-        st.text_area("Urdu Poetry", res["urdu_txt"], height=220, label_visibility="collapsed")
+        st.markdown("<br>", unsafe_allow_html=True)
+        if os.path.exists(res["audio_filename"]):
+            st.audio(res["audio_filename"])
 
-    with tab_hindi:
-        st.text_area("Hindi Poetry", res["hindi_txt"], height=220, label_visibility="collapsed")
+        st.download_button(
+            label="📥 Download Package (Urdu Text + MP3 ZIP)",
+            data=res["zip_bytes"],
+            file_name=f"{res['base_name']}_package.zip",
+            mime="application/zip",
+            key="dl_single"
+        )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("### 🎧 Generated Voiceover Preview")
-    if os.path.exists(res["audio_filename"]):
-        st.audio(res["audio_filename"])
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.download_button(
-        label="📥 Download Complete Package (Urdu Text + MP3 ZIP)",
-        data=res["zip_bytes"],
-        file_name=f"{res['base_name']}_package.zip",
-        mime="application/zip"
+# ------------------------------------------
+# TAB 2: BULK EXCEL QUEUE SYSTEM
+# ------------------------------------------
+with mode_bulk:
+    st.markdown("##### 📂 Upload `cleaned_shayari_links.xlsx`")
+    uploaded_excel = st.file_uploader(
+        "Apni Excel file yahan drop karein",
+        type=["xlsx"],
+        label_visibility="collapsed"
     )
+
+    if uploaded_excel:
+        try:
+            df_links = pd.read_excel(uploaded_excel)
+        except Exception as e:
+            st.error(f"Excel file read karne mein masla aaya: {e}")
+            st.stop()
+
+        # Detect link column automatically
+        link_col = None
+        for candidate in ["Cleaned Link", "Link", "URL", "Original Link"]:
+            if candidate in df_links.columns:
+                link_col = candidate
+                break
+        if not link_col:
+            link_col = df_links.columns[-1]  # Fallback to last column
+
+        # Ensure S.No column exists
+        if "S.No" not in df_links.columns:
+            df_links.insert(0, "S.No", range(1, len(df_links) + 1))
+
+        total_rows = len(df_links)
+        st.info(f"📊 Excel file mein total **{total_rows} links** mile hain. (Link Column: `{link_col}`)")
+
+        with st.expander("👀 Excel Links Preview Dekhein"):
+            st.dataframe(df_links.head(20), use_container_width=True)
+
+        # Smart Batch Range Selector
+        st.markdown("##### 🎯 Select Batch Range (Safe Limit: 10–15 Links at a time)")
+        c1, c2 = st.columns(2)
+        min_sno = int(df_links["S.No"].min())
+        max_sno = int(df_links["S.No"].max())
+        default_end = min(min_sno + 9, max_sno)
+
+        with c1:
+            start_sno = st.number_input("Start S.No", min_value=min_sno, max_value=max_sno, value=min_sno, step=1)
+        with c2:
+            end_sno = st.number_input("End S.No", min_value=min_sno, max_value=max_sno, value=default_end, step=1)
+
+        if start_sno > end_sno:
+            st.warning("⚠️ 'Start S.No' hamesha 'End S.No' se chota ya barabar hona chahiye!")
+        else:
+            batch_df = df_links[(df_links["S.No"] >= start_sno) & (df_links["S.No"] <= end_sno)]
+            batch_count = len(batch_df)
+
+            if st.button(f"🚀 Start Bulk Queue ({batch_count} Videos: S.No {start_sno} to {end_sno})"):
+                if not GROQ_API_KEY or not ELEVEN_LABS_API_KEY:
+                    st.error("⚠️ System configuration mein API keys missing hain. (`st.secrets` check karein)")
+                    st.stop()
+
+                st.session_state["batch_results"] = []
+                progress_bar = st.progress(0, text="⏳ Queue start ho rahi hai...")
+                status_box = st.empty()
+                live_counter = st.empty()
+
+                completed_count = 0
+                failed_count = 0
+
+                for idx, (_, row) in enumerate(batch_df.iterrows(), start=1):
+                    sno = int(row["S.No"])
+                    url = str(row[link_col]).strip()
+                    platform = str(row.get("Platform", "Video"))
+                    padded_sno = f"{sno:03d}"
+
+                    progress_pct = int(((idx - 1) / batch_count) * 100)
+                    progress_bar.progress(progress_pct, text=f"🔄 Processing S.No #{sno} ({idx}/{batch_count})...")
+                    status_box.info(f"📥 **S.No #{sno}:** Video download ho rahi hai (`{url}`)")
+
+                    media_path = download_video_router(url, prefix=f"batch_{padded_sno}")
+
+                    if not media_path or not os.path.exists(media_path):
+                        failed_count += 1
+                        st.session_state["batch_results"].append({
+                            "sno": sno,
+                            "platform": platform,
+                            "link": url,
+                            "status": "❌ Failed (Download Error)"
+                        })
+                        live_counter.markdown(f"**Live Stats:** ✅ Completed: `{completed_count}` | ❌ Failed: `{failed_count}`")
+                        continue
+
+                    try:
+                        status_box.info(f"🧠 **S.No #{sno}:** Whisper AI transcribe aur Shayari format kar raha hai...")
+                        base_name = f"{padded_sno}_shayari"
+                        urdu_txt, hindi_txt, urdu_fp, hindi_fp = process_media_to_text(
+                            media_path, base_name, GROQ_API_KEY
+                        )
+
+                        status_box.info(f"🎙️ **S.No #{sno}:** ElevenLabs voiceover generate ho raha hai...")
+                        audio_fp = os.path.join(OUTPUT_AUDIO_FOLDER, f"{base_name}.mp3")
+                        tts_ok, tts_msg = generate_tts_elevenlabs(hindi_txt, audio_fp, ELEVEN_LABS_API_KEY, VOICE_ID)
+
+                        if os.path.exists(media_path):
+                            os.remove(media_path)
+
+                        if tts_ok:
+                            completed_count += 1
+                            st.session_state["batch_results"].append({
+                                "sno": sno,
+                                "platform": platform,
+                                "link": url,
+                                "status": "✅ Completed",
+                                "urdu_txt": urdu_txt,
+                                "hindi_txt": hindi_txt,
+                                "urdu_file_path": urdu_fp,
+                                "hindi_file_path": hindi_fp,
+                                "audio_filename": audio_fp,
+                                "arc_urdu_name": f"{padded_sno}_urdu.txt",
+                                "arc_hindi_name": f"{padded_sno}_hindi.txt",
+                                "arc_audio_name": f"{padded_sno}_audio.mp3"
+                            })
+                        else:
+                            failed_count += 1
+                            st.session_state["batch_results"].append({
+                                "sno": sno,
+                                "platform": platform,
+                                "link": url,
+                                "status": f"❌ Failed ({tts_msg})"
+                            })
+
+                    except Exception as e:
+                        if os.path.exists(media_path):
+                            os.remove(media_path)
+                        failed_count += 1
+                        st.session_state["batch_results"].append({
+                            "sno": sno,
+                            "platform": platform,
+                            "link": url,
+                            "status": f"❌ Failed ({str(e)[:40]})"
+                        })
+
+                    # Incremental Master ZIP update after every single item (Crash Protection)
+                    st.session_state["batch_master_zip"] = build_batch_master_zip(st.session_state["batch_results"])
+                    st.session_state["batch_range_label"] = f"{start_sno}_to_{end_sno}"
+                    live_counter.markdown(f"**Live Stats:** ✅ Completed: `{completed_count}` | ❌ Failed: `{failed_count}`")
+
+                    # Cooldown delay to avoid API rate limits
+                    if idx < batch_count:
+                        time.sleep(2)
+
+                progress_bar.progress(100, text="✅ Bulk Queue Completed!")
+                status_box.success(f"🎉 Batch Complete! {completed_count} kamiyab hue, {failed_count} fail hue.")
+                if completed_count > 0:
+                    st.balloons()
+
+    # --- Display Persistent Batch Results & Master ZIP ---
+    if "batch_results" in st.session_state and len(st.session_state["batch_results"]) > 0:
+        st.markdown("---")
+        st.markdown("### 📦 Bulk Queue Output & Master Package")
+
+        if "batch_master_zip" in st.session_state:
+            range_lbl = st.session_state.get("batch_range_label", "batch")
+            st.download_button(
+                label="📥 Download MASTER ZIP (All Numbered Audios + Urdu Texts + Excel Report)",
+                data=st.session_state["batch_master_zip"],
+                file_name=f"Shayari_Batch_{range_lbl}.zip",
+                mime="application/zip",
+                key="dl_master_zip"
+            )
+
+        st.markdown("#### 📋 Individual Item Results")
+        for item in st.session_state["batch_results"]:
+            header_text = f"S.No #{item['sno']} ({item['platform']}) — {item['status']}"
+            with st.expander(header_text):
+                st.caption(f"🔗 Link: {item['link']}")
+                if item["status"] == "✅ Completed":
+                    c_u, c_h = st.columns(2)
+                    with c_u:
+                        st.markdown("**🌙 Urdu Script**")
+                        st.markdown(f'<div class="poetry-card urdu-font">{item["urdu_txt"]}</div>', unsafe_allow_html=True)
+                    with c_h:
+                        st.markdown("**🪔 Hindi Script**")
+                        st.markdown(f'<div class="poetry-card hindi-font">{item["hindi_txt"]}</div>', unsafe_allow_html=True)
+
+                    if os.path.exists(item["audio_filename"]):
+                        st.audio(item["audio_filename"])

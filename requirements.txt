@@ -2,3 +2,5 @@ streamlit
 requests
 yt-dlp
 groq
+pandas
+openpyxl
