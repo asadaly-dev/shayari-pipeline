@@ -130,7 +130,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- Background API Configurations ---
+# --- Streamlit Secrets Configuration ---
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 ELEVEN_LABS_API_KEY = st.secrets.get("ELEVEN_LABS_API_KEY", "")
 VOICE_ID = st.secrets.get("VOICE_ID", "nQ41Q0vYCIfV8DMjRAUs")
@@ -143,47 +143,88 @@ OUTPUT_AUDIO_FOLDER = "output_audio"
 for folder in [DOWNLOAD_FOLDER, OUTPUT_URDU_FOLDER, OUTPUT_HINDI_FOLDER, OUTPUT_AUDIO_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
-# --- Downloader Functions ---
+# ==========================================
+# 📥 UPGRADED DOWNLOADER FUNCTIONS (With Fallback & Error Logging)
+# ==========================================
 def download_tiktok(video_url, prefix="single"):
-    api_url = f"https://www.tikwm.com/api/?url={video_url}"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://www.tikwm.com/'
+    }
+    tikwm_error = ""
+
+    # Attempt 1: TikWM POST API
     try:
-        response = requests.get(api_url, headers=headers, timeout=30)
+        api_url = "https://www.tikwm.com/api/"
+        response = requests.post(api_url, data={'url': video_url, 'hd': 1}, headers=headers, timeout=30)
         data = response.json()
-        if data.get('code') == 0:
-            video_dl_url = data['data']['play']
-            video_id = data['data'].get('id', int(time.time()))
-            file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_tiktok_{video_id}.mp4")
-            video_response = requests.get(video_dl_url, timeout=60)
-            with open(file_path, 'wb') as f:
-                f.write(video_response.content)
-            return file_path
-    except Exception:
-        return None
-    return None
+
+        if data.get('code') == 0 and data.get('data'):
+            video_dl_url = data['data'].get('play') or data['data'].get('wmplay')
+            if video_dl_url:
+                if video_dl_url.startswith("/"):
+                    video_dl_url = "https://www.tikwm.com" + video_dl_url
+
+                video_id = data['data'].get('id', int(time.time()))
+                file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_tiktok_{video_id}.mp4")
+
+                video_response = requests.get(video_dl_url, headers=headers, timeout=60)
+                if video_response.status_code == 200 and len(video_response.content) > 1000:
+                    with open(file_path, 'wb') as f:
+                        f.write(video_response.content)
+                    return file_path, None
+                else:
+                    tikwm_error = f"TikWM CDN HTTP {video_response.status_code}"
+            else:
+                tikwm_error = "TikWM: Video stream missing"
+        else:
+            tikwm_error = f"TikWM msg: {data.get('msg', 'Rate limit or invalid link')}"
+    except Exception as e:
+        tikwm_error = f"TikWM Error: {str(e)[:50]}"
+
+    # Attempt 2: yt-dlp Fallback
+    file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_tiktok_{abs(hash(video_url))}.mp4")
+    ydl_opts = {
+        'outtmpl': file_path,
+        'format': 'best[ext=mp4]/best',
+        'quiet': True,
+        'no_warnings': True,
+        'http_headers': {'User-Agent': headers['User-Agent']}
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 1000:
+            return file_path, None
+    except Exception as ydl_e:
+        return None, f"{tikwm_error} | yt-dlp: {str(ydl_e)[:60]}"
+
+    return None, tikwm_error or "Unknown TikTok download failure"
 
 def download_facebook(video_url, prefix="single"):
     file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_fb_{abs(hash(video_url))}.mp4")
     ydl_opts = {
         'outtmpl': file_path,
         'format': 'best',
-        'quiet': True
+        'quiet': True,
+        'no_warnings': True
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
-        if os.path.exists(file_path):
-            return file_path
-    except Exception:
-        return None
-    return None
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 1000:
+            return file_path, None
+        return None, "FB file empty or not created"
+    except Exception as e:
+        return None, f"FB Error: {str(e)[:80]}"
 
 def download_video_router(url, prefix="item"):
     if "tiktok.com" in url or "vt.tiktok.com" in url:
         return download_tiktok(url, prefix)
     elif "facebook.com" in url or "fb.watch" in url:
         return download_facebook(url, prefix)
-    return None
+    return None, "Unsupported URL domain (Only TikTok & Facebook allowed)"
 
 # --- Text Extraction & Formatting ---
 def process_media_to_text(media_path, base_name, groq_key):
@@ -265,7 +306,7 @@ def generate_tts_elevenlabs(text, output_filename, api_key, voice_id):
             f.write(response.content)
         return True, "Success"
     else:
-        return False, f"API Error {response.status_code}"
+        return False, f"API Error {response.status_code}: {response.text[:60]}"
 
 # --- Helper to Build Master ZIP from Batch Results ---
 def build_batch_master_zip(results_list):
@@ -291,7 +332,6 @@ def build_batch_master_zip(results_list):
                 if os.path.exists(item["audio_filename"]):
                     zip_file.write(item["audio_filename"], arcname=item["arc_audio_name"])
 
-        # Add Excel Batch Report inside the Master ZIP
         report_df = pd.DataFrame(report_rows)
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
@@ -321,15 +361,15 @@ with mode_single:
         if not url_input.strip():
             st.warning("⚠️ Baraye meherbani pehle koi valid TikTok ya Facebook link enter karein!")
         elif not GROQ_API_KEY or not ELEVEN_LABS_API_KEY:
-            st.error("⚠️ System configuration mein API keys missing hain. (`st.secrets` check karein)")
+            st.error("⚠️ Streamlit secrets mein API keys configured nahi hain!")
         else:
             with st.status("🚀 AI Pipeline Chal Rahi Hai...", expanded=True) as status:
                 st.write("📥 **Step 1/3:** Video download ki ja rahi hai...")
-                media_path = download_video_router(url_input, prefix="single")
+                media_path, dl_error = download_video_router(url_input, prefix="single")
 
                 if not media_path or not os.path.exists(media_path):
                     status.update(label="❌ Video Download Failed!", state="error", expanded=False)
-                    st.error("Video download nahi ho saki. Link check karein!")
+                    st.error(f"Video download nahi ho saki! Reason: `{dl_error}`")
                     st.stop()
 
                 base_name = f"poetry_{int(time.time())}"
@@ -407,16 +447,14 @@ with mode_bulk:
             st.error(f"Excel file read karne mein masla aaya: {e}")
             st.stop()
 
-        # Detect link column automatically
         link_col = None
         for candidate in ["Cleaned Link", "Link", "URL", "Original Link"]:
             if candidate in df_links.columns:
                 link_col = candidate
                 break
         if not link_col:
-            link_col = df_links.columns[-1]  # Fallback to last column
+            link_col = df_links.columns[-1]
 
-        # Ensure S.No column exists
         if "S.No" not in df_links.columns:
             df_links.insert(0, "S.No", range(1, len(df_links) + 1))
 
@@ -426,7 +464,6 @@ with mode_bulk:
         with st.expander("👀 Excel Links Preview Dekhein"):
             st.dataframe(df_links.head(20), use_container_width=True)
 
-        # Smart Batch Range Selector
         st.markdown("##### 🎯 Select Batch Range (Safe Limit: 10–15 Links at a time)")
         c1, c2 = st.columns(2)
         min_sno = int(df_links["S.No"].min())
@@ -446,7 +483,7 @@ with mode_bulk:
 
             if st.button(f"🚀 Start Bulk Queue ({batch_count} Videos: S.No {start_sno} to {end_sno})"):
                 if not GROQ_API_KEY or not ELEVEN_LABS_API_KEY:
-                    st.error("⚠️ System configuration mein API keys missing hain. (`st.secrets` check karein)")
+                    st.error("⚠️ Streamlit secrets mein API keys configured nahi hain!")
                     st.stop()
 
                 st.session_state["batch_results"] = []
@@ -467,17 +504,22 @@ with mode_bulk:
                     progress_bar.progress(progress_pct, text=f"🔄 Processing S.No #{sno} ({idx}/{batch_count})...")
                     status_box.info(f"📥 **S.No #{sno}:** Video download ho rahi hai (`{url}`)")
 
-                    media_path = download_video_router(url, prefix=f"batch_{padded_sno}")
+                    media_path, dl_error = download_video_router(url, prefix=f"batch_{padded_sno}")
 
                     if not media_path or not os.path.exists(media_path):
                         failed_count += 1
+                        st.warning(f"⚠️ S.No #{sno} Failed — Reason: `{dl_error}`")
                         st.session_state["batch_results"].append({
                             "sno": sno,
                             "platform": platform,
                             "link": url,
-                            "status": "❌ Failed (Download Error)"
+                            "status": f"❌ Failed ({dl_error})"
                         })
+                        st.session_state["batch_master_zip"] = build_batch_master_zip(st.session_state["batch_results"])
+                        st.session_state["batch_range_label"] = f"{start_sno}_to_{end_sno}"
                         live_counter.markdown(f"**Live Stats:** ✅ Completed: `{completed_count}` | ❌ Failed: `{failed_count}`")
+                        if idx < batch_count:
+                            time.sleep(2)
                         continue
 
                     try:
@@ -512,6 +554,7 @@ with mode_bulk:
                             })
                         else:
                             failed_count += 1
+                            st.warning(f"⚠️ S.No #{sno} Audio Failed — Reason: `{tts_msg}`")
                             st.session_state["batch_results"].append({
                                 "sno": sno,
                                 "platform": platform,
@@ -523,28 +566,27 @@ with mode_bulk:
                         if os.path.exists(media_path):
                             os.remove(media_path)
                         failed_count += 1
+                        err_short = str(e)[:60]
+                        st.warning(f"⚠️ S.No #{sno} Processing Error — `{err_short}`")
                         st.session_state["batch_results"].append({
                             "sno": sno,
                             "platform": platform,
                             "link": url,
-                            "status": f"❌ Failed ({str(e)[:40]})"
+                            "status": f"❌ Failed ({err_short})"
                         })
 
-                    # Incremental Master ZIP update after every single item (Crash Protection)
                     st.session_state["batch_master_zip"] = build_batch_master_zip(st.session_state["batch_results"])
                     st.session_state["batch_range_label"] = f"{start_sno}_to_{end_sno}"
                     live_counter.markdown(f"**Live Stats:** ✅ Completed: `{completed_count}` | ❌ Failed: `{failed_count}`")
 
-                    # Cooldown delay to avoid API rate limits
                     if idx < batch_count:
-                        time.sleep(2)
+                        time.sleep(2.5)
 
                 progress_bar.progress(100, text="✅ Bulk Queue Completed!")
                 status_box.success(f"🎉 Batch Complete! {completed_count} kamiyab hue, {failed_count} fail hue.")
                 if completed_count > 0:
                     st.balloons()
 
-    # --- Display Persistent Batch Results & Master ZIP ---
     if "batch_results" in st.session_state and len(st.session_state["batch_results"]) > 0:
         st.markdown("---")
         st.markdown("### 📦 Bulk Queue Output & Master Package")
