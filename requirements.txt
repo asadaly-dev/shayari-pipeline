@@ -1,6 +1,6 @@
 streamlit
 requests
-yt-dlp
+yt-dlp>=2024.03.10
 groq
 pandas
 openpyxl

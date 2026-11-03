@@ -148,6 +148,62 @@ for folder in [DOWNLOAD_FOLDER, OUTPUT_URDU_FOLDER, OUTPUT_HINDI_FOLDER, OUTPUT_
 # 📥 UPGRADED DOWNLOADER FUNCTIONS (Anti-Bot & Fallback)
 # ==========================================
 def download_tiktok(video_url, prefix="single"):
+    clean_url = video_url.split("?")[0].strip()
+    
+    # ---------------------------------------------------------
+    # METHOD 1: yt-dlp using Browser Cookies (Bypasses IP Block)
+    # ---------------------------------------------------------
+    file_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_tiktok_{abs(hash(clean_url))}.mp4")
+    
+    for browser in ["chrome", "edge", "firefox"]:
+        ydl_opts = {
+            "outtmpl": file_path,
+            "format": "best[ext=mp4]/best",
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+            "cookiesfrombrowser": (browser,)
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([clean_url])
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 1000:
+                return file_path, None
+        except Exception:
+            continue
+
+    # ---------------------------------------------------------
+    # METHOD 2: TikWM API Fallback (with mobile headers)
+    # ---------------------------------------------------------
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+        }
+        res = requests.post(
+            "https://www.tikwm.com/api/",
+            data={"url": clean_url, "hd": 1},
+            headers=headers,
+            timeout=25
+        )
+        if res.status_code == 200 and res.text.strip().startswith("{"):
+            data = res.json()
+            if data.get("code") == 0 and data.get("data"):
+                d = data["data"]
+                dl_url = d.get("play") or d.get("wmplay") or d.get("music")
+                if dl_url:
+                    if dl_url.startswith("/"):
+                        dl_url = "https://www.tikwm.com" + dl_url
+                    vid_path = os.path.join(DOWNLOAD_FOLDER, f"{prefix}_tiktok_tikwm_{d.get('id', int(time.time()))}.mp4")
+                    vid_res = requests.get(dl_url, headers=headers, timeout=60)
+                    if vid_res.status_code == 200 and len(vid_res.content) > 1000:
+                        with open(vid_path, "wb") as f:
+                            f.write(vid_res.content)
+                        return vid_path, None
+    except Exception as e:
+        return None, f"All methods failed. TikWM/yt-dlp error: {str(e)[:60]}"
+
+    return None, "TikTok download failed (IP blocked or invalid link)"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
